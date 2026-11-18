@@ -1,0 +1,81 @@
+name: Build macOS & Windows Standalone Apps
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            platform_name: macOS
+            rust_bin: target/release/spotdl-rust
+            out_bin: spotDL-Studio
+            ytdlp_url: https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos
+            ytdlp_name: yt-dlp
+          - os: windows-latest
+            platform_name: Windows
+            rust_bin: target/release/spotdl-rust.exe
+            out_bin: spotDL-Studio.exe
+            ytdlp_url: https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe
+            ytdlp_name: yt-dlp.exe
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build standalone release binary
+        run: cargo build --release
+
+      - name: Package app with standalone yt-dlp
+        shell: bash
+        run: |
+          mkdir -p dist/spotDL-Studio
+          cp "${{ matrix.rust_bin }}" "dist/spotDL-Studio/${{ matrix.out_bin }}"
+          curl -L "${{ matrix.ytdlp_url }}" -o "dist/spotDL-Studio/${{ matrix.ytdlp_name }}"
+          chmod +x "dist/spotDL-Studio/${{ matrix.out_bin }}" "dist/spotDL-Studio/${{ matrix.ytdlp_name }}" || true
+          cd dist
+          if [ "${{ matrix.platform_name }}" = "Windows" ]; then
+            7z a "../spotDL-Studio-${{ matrix.platform_name }}.zip" spotDL-Studio
+          else
+            zip -r "../spotDL-Studio-${{ matrix.platform_name }}.zip" spotDL-Studio
+          fi
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: spotDL-Studio-${{ matrix.platform_name }}
+          path: spotDL-Studio-${{ matrix.platform_name }}.zip
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all packaged builds
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: spotDL Studio (Latest Build)
+          prerelease: false
+          files: artifacts/*.zip
