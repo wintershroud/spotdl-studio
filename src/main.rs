@@ -158,6 +158,24 @@ fn effective_output_dir(raw: &str) -> PathBuf {
         .join("spotDL")
 }
 
+fn ensure_executable(path: &Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(meta) = fs::metadata(path) {
+            let mut perms = meta.permissions();
+            if perms.mode() & 0o111 == 0 {
+                perms.set_mode(0o755);
+                let _ = fs::set_permissions(path, perms);
+            }
+        }
+        let _ = std::process::Command::new("xattr")
+            .args(["-d", "com.apple.quarantine"])
+            .arg(path)
+            .output();
+    }
+}
+
 fn find_binary(name: &str) -> Option<PathBuf> {
     let ext = if cfg!(windows) { ".exe" } else { "" };
 
@@ -166,6 +184,7 @@ fn find_binary(name: &str) -> Option<PathBuf> {
         if let Some(exe_dir) = exe_path.parent() {
             let beside = exe_dir.join(format!("{name}{ext}"));
             if beside.is_file() {
+                ensure_executable(&beside);
                 return Some(beside);
             }
         }
@@ -174,6 +193,7 @@ fn find_binary(name: &str) -> Option<PathBuf> {
     // 2. Check ~/.spotdl/
     let local = spotdl_dir().join(format!("{name}{ext}"));
     if local.exists() && fs::metadata(&local).map(|m| m.len() > 100_000).unwrap_or(false) {
+        ensure_executable(&local);
         return Some(local);
     }
 
@@ -317,7 +337,7 @@ fn build_ytmusic_targets(raw_query: &str, meta: &TrackMeta) -> (Vec<String>, Vec
     let fallback_search = if lower.contains("audio") || lower.contains("official") {
         format!("ytsearch5:{search_phrase}")
     } else {
-        format!("ytsearch5:{search_phrase} \"Topic\"")
+        format!("ytsearch5:{search_phrase} audio")
     };
 
     (vec![ytm_songs_url, fallback_search], flags)
@@ -496,7 +516,7 @@ async fn download_handler(
             "10".into(),
             "--no-warnings".into(),
             "--extractor-args".into(),
-            "youtube:player_client=android,ios,tv_embedded,web".into(),
+            "youtube:player_client=default,web_safari,mweb".into(),
         ];
         base_args.extend(extra_flags);
 
@@ -504,7 +524,7 @@ async fn download_handler(
             if req.format != "m4a" {
                 base_args.extend([
                     "-f".into(),
-                    "bestaudio".into(),
+                    "bestaudio/best".into(),
                     "--ffmpeg-location".into(),
                     ff.to_string_lossy().to_string(),
                     "-x".into(),
@@ -514,7 +534,7 @@ async fn download_handler(
                     req.bitrate.clone(),
                 ]);
             } else {
-                base_args.extend(["-f".into(), "bestaudio[ext=m4a]/bestaudio".into()]);
+                base_args.extend(["-f".into(), "bestaudio[ext=m4a]/bestaudio/best".into()]);
             }
         } else {
             if req.format != "m4a" {
@@ -523,7 +543,7 @@ async fn download_handler(
                     "FFmpeg not found — saving native M4A audio (compatible with Apple Music, Spotify Local Files, Windows, and Linux).",
                 );
             }
-            base_args.extend(["-f".into(), "bestaudio[ext=m4a]/bestaudio".into()]);
+            base_args.extend(["-f".into(), "bestaudio[ext=m4a]/bestaudio/best".into()]);
         }
 
         base_args.extend([
@@ -541,7 +561,7 @@ async fn download_handler(
             if idx == 0 && target_url.contains("music.youtube.com") {
                 emit_log(&tx, "> Searching YouTube Music...");
             } else if idx > 0 {
-                emit_log(&tx, "> Retrying via YouTube Music Topic catalog...");
+                emit_log(&tx, "> Retrying via YouTube search...");
             }
 
             let mut args = base_args.clone();
@@ -668,7 +688,6 @@ fn main() {
 
     let (port_tx, port_rx) = std::sync::mpsc::channel::<u16>();
 
-    // Run the Axum backend on a background Tokio thread
     std::thread::spawn(move || {
         let rt = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
         rt.block_on(async move {
@@ -682,7 +701,6 @@ fn main() {
                 .route("/cancel", post(cancel_handler))
                 .with_state(state);
 
-            // Bind to port 0 so OS assigns an open port (avoids port-in-use conflicts)
             let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
                 .await
                 .expect("Failed to bind local server");
@@ -696,12 +714,14 @@ fn main() {
     let port = port_rx.recv().expect("Server failed to start");
     let app_url = format!("http://127.0.0.1:{port}");
 
-    // Launch native standalone desktop window (WebKit on macOS, WebView2 on Windows)
+    // Launch native standalone desktop window with fullscreen & resize support
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
         .with_title("spotDL Studio")
-        .with_inner_size(LogicalSize::new(920.0, 740.0))
+        .with_inner_size(LogicalSize::new(960.0, 760.0))
         .with_min_inner_size(LogicalSize::new(680.0, 620.0))
+        .with_resizable(true)
+        .with_maximizable(true)
         .build(&event_loop)
         .expect("Failed to create desktop window");
 
