@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>spotDL Studio</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <main class="card">
+    <div class="header">
+      <h1 class="title"><span class="dot" aria-hidden="true"></span> spotDL Studio</h1>
+      <span id="engineBadge" class="badge warn" role="status">Preparing spotDL...</span>
+    </div>
+
+    <label for="query">Spotify link or song search</label>
+    <input type="text" id="query" autocomplete="off" spellcheck="false"
+      placeholder="Paste a track, album or playlist link, or type 'Artist - Song'" />
+
+    <label for="outputDir">Save location</label>
+    <div class="save-row">
+      <input type="text" id="outputDir" spellcheck="false" />
+      <button type="button" id="browseBtn" class="btn-browse">Browse</button>
+      <button type="button" id="openBtn" class="btn-browse">Open</button>
+    </div>
+
+    <div class="row">
+      <div>
+        <label for="format">Audio format</label>
+        <select id="format">
+          <option value="mp3">mp3</option>
+          <option value="m4a">m4a</option>
+          <option value="flac">flac (lossless)</option>
+          <option value="opus">opus</option>
+          <option value="ogg">ogg</option>
+          <option value="wav">wav (lossless)</option>
+        </select>
+      </div>
+      <div>
+        <label for="bitrate">Bitrate</label>
+        <select id="bitrate">
+          <option value="320k">320k</option>
+          <option value="256k">256k</option>
+          <option value="192k">192k</option>
+          <option value="128k">128k</option>
+          <option value="auto">Match source</option>
+        </select>
+      </div>
+      <div>
+        <label for="naming">File naming</label>
+        <select id="naming">
+          <option value="artist_title">Artist - Title</option>
+          <option value="title">Title only</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button type="button" id="downloadBtn" class="btn-primary" disabled>Download</button>
+      <button type="button" id="cancelBtn" class="btn-cancel" disabled>Cancel</button>
+    </div>
+
+    <div class="log-header">
+      <span id="statusText" class="status" role="status" aria-live="polite">Ready</span>
+      <button type="button" id="clearBtn" class="btn-clear">Clear log</button>
+    </div>
+    <div id="logBox" class="log-box" tabindex="0" aria-label="Download log">Paste a Spotify link or type "Artist - Song", then press Download.</div>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
