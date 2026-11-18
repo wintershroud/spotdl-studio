@@ -199,6 +199,12 @@ async fn kill_tree(child: &mut Child) {
             .await;
     }
     if tokio::time::timeout(std::time::Duration::from_secs(3), child.wait()).await.is_err() {
+        // spotDL ignores SIGTERM mid-download, and child.kill() would only
+        // reach the PyInstaller launcher, so kill the whole group.
+        #[cfg(unix)]
+        if let Some(pid) = child.id() {
+            let _ = Command::new("kill").args(["-KILL", "--", &format!("-{pid}")]).status().await;
+        }
         let _ = child.kill().await;
     }
 }
@@ -275,6 +281,21 @@ mod tests {
             Some(Outcome::Skipped)
         );
         assert_eq!(classify("Processing query: x"), None);
+    }
+
+    /// Stands in for spotDL: ignores SIGTERM and has its own child process.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn cancel_kills_a_term_ignoring_process_tree() {
+        let mut cmd = Command::new("sh");
+        cmd.args(["-c", "trap '' TERM; sleep 60 & wait"]).process_group(0);
+        let mut child = cmd.spawn().unwrap();
+        let pgid = child.id().unwrap().to_string();
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        kill_tree(&mut child).await;
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        let left = std::process::Command::new("pgrep").args(["-g", &pgid]).output().unwrap();
+        assert!(left.stdout.is_empty(), "left running: {}", String::from_utf8_lossy(&left.stdout));
     }
 
     #[test]
