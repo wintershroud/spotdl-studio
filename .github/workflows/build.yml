@@ -1,8 +1,9 @@
-name: Build macOS & Windows Standalone Apps
+name: Build portable apps
 
 on:
   push:
     branches: [ main, master ]
+  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -14,18 +15,15 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-latest
-            platform_name: macOS
-            rust_bin: target/release/spotdl-rust
-            out_bin: spotDL-Studio
-            ytdlp_url: https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos
-            ytdlp_name: yt-dlp
           - os: windows-latest
-            platform_name: Windows
-            rust_bin: target/release/spotdl-rust.exe
-            out_bin: spotDL-Studio.exe
-            ytdlp_url: https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe
-            ytdlp_name: yt-dlp.exe
+            platform: windows
+            tauri_args: --no-bundle
+          - os: macos-latest
+            platform: macos
+            tauri_args: --bundles app,dmg
+          - os: ubuntu-22.04
+            platform: linux
+            tauri_args: --bundles appimage
 
     runs-on: ${{ matrix.os }}
 
@@ -38,35 +36,49 @@ jobs:
 
       - name: Cache Cargo dependencies
         uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
 
-      - name: Build standalone release binary
-        run: cargo build --release
+      - name: Install Linux build libraries
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev libssl-dev librsvg2-dev patchelf file
 
-      - name: Package app with standalone yt-dlp
+      - name: Fetch pinned engines (spotDL, ffmpeg, deno)
+        shell: bash
+        run: bash scripts/fetch-engines.sh ${{ matrix.platform }}
+
+      - name: Run tests
+        working-directory: src-tauri
+        run: cargo test --release
+
+      - name: Build app
+        run: npx --yes @tauri-apps/cli@2.12.4 build ${{ matrix.tauri_args }}
+
+      - name: Collect release files
         shell: bash
         run: |
-          mkdir -p dist/spotDL-Studio
-          cp "${{ matrix.rust_bin }}" "dist/spotDL-Studio/${{ matrix.out_bin }}"
-          curl -L "${{ matrix.ytdlp_url }}" -o "dist/spotDL-Studio/${{ matrix.ytdlp_name }}"
-          chmod +x "dist/spotDL-Studio/${{ matrix.out_bin }}" "dist/spotDL-Studio/${{ matrix.ytdlp_name }}" || true
-          cd dist
-          if [ "${{ matrix.platform_name }}" = "Windows" ]; then
-            7z a "../spotDL-Studio-${{ matrix.platform_name }}.zip" spotDL-Studio
-          else
-            zip -r "../spotDL-Studio-${{ matrix.platform_name }}.zip" spotDL-Studio
-          fi
+          mkdir -p out
+          case "${{ matrix.platform }}" in
+            windows) cp src-tauri/target/release/spotdl-studio.exe "out/spotDL-Studio-Windows.exe" ;;
+            macos)   cp src-tauri/target/release/bundle/dmg/*.dmg "out/spotDL-Studio-macOS.dmg" ;;
+            linux)   cp src-tauri/target/release/bundle/appimage/*.AppImage "out/spotDL-Studio-Linux.AppImage" ;;
+          esac
+          ls -la out
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: spotDL-Studio-${{ matrix.platform_name }}
-          path: spotDL-Studio-${{ matrix.platform_name }}.zip
+          name: spotDL-Studio-${{ matrix.platform }}
+          path: out/*
 
   release:
     needs: build
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
-      - name: Download all packaged builds
+      - name: Download all builds
         uses: actions/download-artifact@v4
         with:
           path: artifacts
@@ -78,4 +90,4 @@ jobs:
           tag_name: latest
           name: spotDL Studio (Latest Build)
           prerelease: false
-          files: artifacts/*.zip
+          files: artifacts/*

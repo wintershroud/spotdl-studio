@@ -1,0 +1,3 @@
+# Windows checkouts must not add CR to these, or the URLs and shebang break.
+*.sh text eol=lf
+engines.lock text eol=lf
